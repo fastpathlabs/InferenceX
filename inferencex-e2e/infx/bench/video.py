@@ -124,6 +124,7 @@ def main(argv: list[str]) -> int:
             gpus=gpus,
             window_dir=window_dir,
             request_seconds=args.request_seconds,
+            optimizations=json.loads(env.optional("VIDEO_OPTIMIZATIONS") or "[]"),
         )
         for concurrency, run in runs.items():
             print(

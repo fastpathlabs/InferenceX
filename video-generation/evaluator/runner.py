@@ -772,6 +772,7 @@ def run_plan(
     serving_concurrency: int | None = None,
     delivery_deadline_seconds: float | None = None,
     numerical_identity: dict[str, Any] | None = None,
+    optimizations: list[str] | None = None,
 ) -> dict[str, Any]:
     """Execute a serial or explicit closed-loop run, retaining every outcome.
 
@@ -858,6 +859,7 @@ def run_plan(
         "endpoint": safe_endpoint,
         "identity_verification": "operator_declared",
         "plan_sha256": plan_sha256,
+        "optimizations": sorted(optimizations or []),
         "client_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "media_evaluator": media_evaluator,
         "client_environment": {

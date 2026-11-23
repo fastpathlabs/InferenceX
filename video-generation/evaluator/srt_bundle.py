@@ -376,7 +376,14 @@ def build_bundle(
         attested = None
         runtime = configuration.get("runtime")
         if runtime in POLICIES:
-            attestation = attest(runtime, server_log, plan, run.get("records") or [], precision)
+            attestation = attest(
+                runtime,
+                server_log,
+                plan,
+                run.get("records") or [],
+                precision,
+                configuration.get("optimizations", []),
+            )
             write_json(target / "attestation.json", attestation)
             attested = {"sha256": _hash(target / "attestation.json"), "valid": attestation["valid"]}
         summary = run.get("summary") or {}

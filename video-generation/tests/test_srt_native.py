@@ -79,13 +79,14 @@ def _run(concurrency, scheduled=4, valid=4, status="complete"):
 def test_matrix_runs_every_concurrency_against_one_server_and_publishes_windows(
     tmp_path, monkeypatch
 ):
-    seen, identities = [], []
+    seen, identities, declared = [], [], []
 
     def fake_run_plan(plan, output, **kwargs):
         seen.append(
             (kwargs["serving_concurrency"], output, kwargs["runtime"], kwargs["runtime_revision"])
         )
         identities.append(kwargs["numerical_identity"])
+        declared.append(kwargs["optimizations"])
         output.mkdir(parents=True)
         run = _run(kwargs["serving_concurrency"])
         (output / "run.json").write_text(json.dumps(run))
@@ -119,12 +120,14 @@ def test_matrix_runs_every_concurrency_against_one_server_and_publishes_windows(
         gpus=2,
         window_dir=windows,
         request_seconds=900,
+        optimizations=["cache-dit"],
     )
 
     assert [(c, r, rev) for c, _, r, rev in seen] == [
         (1, "sglang", "7" * 40),
         (2, "sglang", "7" * 40),
     ]
+    assert declared == [["cache-dit"], ["cache-dit"]]
     assert seen[0][1] == logs / "video/gpu/c1/baseline"
     assert (
         identities[0]
@@ -436,6 +439,30 @@ def test_only_runtimes_with_a_policy_are_gated_on_work_attestation(tmp_path, run
     assert result["power_verified"] is True and receipt["power_verified"] is True
     assert ("attestation" in cell) is (runtime == "sglang")
     assert (output / "gpu/c1/attestation.json").exists() is (runtime == "sglang")
+
+
+def test_bundle_attests_the_optimizations_the_run_declared(tmp_path):
+    logs, workspace = _native_job(tmp_path, concurrencies=(1,))
+    with (logs / "service_video-server.out").open("a") as log:
+        log.write("[10-17 00:00:03] Enabling cache-dit on transformer with config: Fn=1\n")
+    run_path = logs / "video/gpu/c1/baseline/run.json"
+    run = json.loads(run_path.read_text())
+    run["configuration"]["optimizations"] = ["cache-dit"]
+    run_path.write_text(json.dumps(run))
+    output = tmp_path / "h3-results"
+    srt_bundle.build_bundle(
+        video_dir=logs / "video",
+        power_dir=logs / "power",
+        server_log=logs / "service_video-server.out",
+        precision="bf16",
+        workspace=workspace,
+        result_filename="r",
+        concurrencies=[1],
+        output=output,
+        environ={"PATH": os.environ["PATH"]},
+    )
+    [cell] = json.loads((output / "serving-smoke.json").read_text())["cells"]
+    assert cell["verified"] is True and cell["attestation"]["valid"] is True
 
 
 def test_bundle_marks_a_missing_or_short_cell_failed(tmp_path):

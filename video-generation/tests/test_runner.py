@@ -288,6 +288,7 @@ def test_local_http_fixture_lifecycle_and_identity(
     assert run["summary"]["latency_sample_stddev_seconds"] is not None
     assert run["summary"]["submit_to_terminal_median_seconds"] > 0
     assert run["configuration"]["identity_verification"] == "operator_declared"
+    assert run["configuration"]["optimizations"] == []
     assert run["configuration"]["hardware_label"].startswith("LOCAL HTTP FIXTURE")
     assert run["measurement"]["warmup_qualified"] is True
     config = copy.deepcopy(run["configuration"])
@@ -359,9 +360,17 @@ def test_fairness_request_and_disjoint_warmup_reach_local_http_fixture(
         "server_environment": {"CACHE": "0"},
         "gpu_topology": {"gpu_uuids": ["GPU-fixture"]},
     }
-    run = execute(plan, tmp_path / runtime, endpoint, runtime=runtime, numerical_identity=identity)
+    run = execute(
+        plan,
+        tmp_path / runtime,
+        endpoint,
+        runtime=runtime,
+        numerical_identity=identity,
+        optimizations=["subblock-sparse-attn", "cache-dit"],
+    )
     assert run["summary"]["valid"] == 20
     assert run["configuration"]["numerical_identity"] == identity
+    assert run["configuration"]["optimizations"] == ["cache-dit", "subblock-sparse-attn"]
     assert len(server["posts"]) == 21
     assert all(
         record["expected_media"]["duration_seconds"] == 124 / 24 for record in run["records"]

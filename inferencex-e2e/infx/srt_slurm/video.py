@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shlex
+import sys
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
@@ -51,6 +52,7 @@ VIDEO_ENV = (
     "VIDEO_CONTAINER_IMAGE",
     "VIDEO_RUNTIME",
     "VIDEO_RUNTIME_REVISION",
+    "VIDEO_OPTIMIZATIONS",
 )
 _BOUND_KEYS = (
     ("model",),
@@ -180,6 +182,22 @@ def load_spec(name: str, *, root: Path, set_id: str) -> dict[str, Any]:
         "plan_sha256": module.plan_sha256(plan),
         "schema_version": module.schema_version(plan),
     }
+
+
+def attested_optimizations(root: Path, runtime: str) -> frozenset[str]:
+    """Registry keys of the optimizations the job's work attestation can prove for ``runtime``."""
+    if "video_evaluator" not in sys.modules:
+        package = video_package(root) / "evaluator"
+        module_spec = importlib.util.spec_from_file_location(
+            "video_evaluator", package / "__init__.py", submodule_search_locations=[str(package)]
+        )
+        if module_spec is None or module_spec.loader is None:
+            raise ValueError(f"cannot load the video evaluator: {package}")
+        # Registered so attestation's relative imports resolve inside this package.
+        sys.modules["video_evaluator"] = importlib.util.module_from_spec(module_spec)
+        module_spec.loader.exec_module(sys.modules["video_evaluator"])
+    policy = importlib.import_module("video_evaluator.attestation").POLICIES.get(runtime)
+    return frozenset(policy.optimizations) if policy else frozenset()
 
 
 def _pool_service(recipe: Mapping[str, Any]) -> dict[str, Any]:
@@ -316,6 +334,18 @@ def bind_video(
     if workload.get("VIDEO_SERVER_SERVICE") != service["name"]:
         raise ValueError("benchmark.env.VIDEO_SERVER_SERVICE must name the server service")
     runtime = _required(environment, "FRAMEWORK")
+    # App registry keys of the lossy optimizations the server runs; the job attests each one.
+    optimizations = bound.pop("optimizations", [])
+    known = attested_optimizations(root, runtime) if optimizations else frozenset()
+    if (
+        not isinstance(optimizations, list)
+        or len(set(optimizations)) != len(optimizations)
+        or not set(optimizations) <= known
+    ):
+        raise ValueError(
+            f"optimizations must list distinct registry keys the {runtime} attestation can "
+            f"prove: {', '.join(sorted(known)) or 'none'}"
+        )
     _bind_command(
         service,
         runtime=runtime,
@@ -351,6 +381,9 @@ def bind_video(
         "VIDEO_RUNTIME_REVISION": revision,
         "GPU_COUNT": str(gpus),
     }
+    # Omitted when empty so recipes that declare none keep their fingerprints.
+    if optimizations:
+        values["VIDEO_OPTIMIZATIONS"] = json.dumps(sorted(optimizations))
     workload.update(values)
     service["env"] = {
         **(service.get("env") or {}),
