@@ -95,13 +95,53 @@ def _validate_set(set_id: str, prompt_set: Any, prompts: dict[str, Any], version
             raise ValueError(f"{where}.warmup_case must be disjoint from measurements")
 
 
+def _validate_workload_size(size: Any, generation: dict[str, Any]) -> None:
+    where = "workload_size"
+    counts = ("latent_frames", "latent_tokens_video", "guidance_branches", "dit_forward_passes")
+    _fields(
+        size,
+        where,
+        {*counts, "latent_tokens_audio", "latent_tokens", "dit_flops_per_clip", "model"},
+    )
+    model = _fields(
+        size["model"],
+        f"{where}.model",
+        {"latent_patch_pixels", "dit_weights_per_token", "attention_width", "layers"},
+    )
+    for key in counts:
+        _integer(size[key], f"{where}.{key}", minimum=1)
+    _integer(size["latent_tokens_audio"], f"{where}.latent_tokens_audio", minimum=0)
+    for key, value in model.items():
+        _integer(value, f"{where}.model.{key}", minimum=1)
+    for key in ("width", "height", "num_inference_steps"):
+        _integer(generation.get(key), f"generation.{key}", minimum=1)
+    flops = size["dit_flops_per_clip"]
+    if isinstance(flops, bool) or not isinstance(flops, int | float):
+        raise ValueError(f"{where}.dit_flops_per_clip must be a number")
+    patches = generation["width"] * generation["height"] / model["latent_patch_pixels"] ** 2
+    tokens = size["latent_tokens_video"] + size["latent_tokens_audio"]
+    passes = generation["num_inference_steps"] * size["guidance_branches"]
+    per_pass = (
+        2 * tokens * model["dit_weights_per_token"]
+        + 4 * tokens**2 * model["attention_width"] * model["layers"]
+    )
+    for key, declared, expected in (
+        ("latent_tokens_video", size["latent_tokens_video"], size["latent_frames"] * patches),
+        ("latent_tokens", size["latent_tokens"], tokens),
+        ("dit_forward_passes", size["dit_forward_passes"], passes),
+        ("dit_flops_per_clip", f"{flops:.2e}", f"{passes * per_pass:.2e}"),
+    ):
+        if declared != expected:
+            raise ValueError(f"{where}.{key} is {declared}; the spec's own values give {expected}")
+
+
 def load_spec(path: str | Path) -> dict[str, Any]:
     """Parse and validate a spec file; raise ValueError naming the first bad field."""
     spec = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     version = spec.get("schema_version") if isinstance(spec, dict) else None
     if type(version) is not int or version not in _ROOT_KEYS:
         raise ValueError(f"schema_version must be one of {sorted(_ROOT_KEYS)}")
-    _fields(spec, "spec", _ROOT_KEYS[version])
+    _fields(spec, "spec", _ROOT_KEYS[version] | ({"workload_size"} & spec.keys()))
     model = _fields(spec["model"], "model", {"id", "revision"})
     _text(model["id"], "model.id")
     if not isinstance(model["revision"], str) or not _REVISION.fullmatch(model["revision"]):
@@ -207,6 +247,8 @@ def load_spec(path: str | Path) -> dict[str, Any]:
 
     elif not isinstance(spec["reference"], dict):
         raise ValueError("reference must be a mapping")
+    if "workload_size" in spec:
+        _validate_workload_size(spec["workload_size"], generation)
     return spec
 
 

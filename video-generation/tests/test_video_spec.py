@@ -91,6 +91,17 @@ def test_v01_plan_declares_schema_2_with_its_fairness_and_warmup() -> None:
     assert plan["warmup_case"]["case_id"] == "warmup-only"
 
 
+def test_workload_size_stays_outside_the_plan_and_both_hashes(tmp_path: Path) -> None:
+    document = yaml.safe_load((SPECS / "wan22.yaml").read_text())
+    size = document.pop("workload_size")
+    path = tmp_path / "unsized.yaml"
+    path.write_text(yaml.safe_dump(document))
+    sized, unsized = video_spec.load_spec(SPECS / "wan22.yaml"), video_spec.load_spec(path)
+    assert sized["workload_size"] == size
+    assert video_spec.plan_for(sized, "release-v1") == video_spec.plan_for(unsized, "release-v1")
+    assert video_spec.spec_sha256(sized) == video_spec.spec_sha256(unsized)
+
+
 def _reuse_text(source: str, target: str) -> Callable[[dict[str, Any]], None]:
     return lambda doc: doc["prompts"][target].update(text=doc["prompts"][source]["text"])
 
@@ -132,6 +143,26 @@ def _reuse_text(source: str, target: str) -> Callable[[dict[str, Any]], None]:
             "h3.yaml",
             lambda doc: doc["sets"]["engine-compare-v1"]["cases"][1].update(seed=11),
             "cases must not repeat a prompt text with the same seed",
+        ),
+        (
+            "wan22.yaml",
+            lambda doc: doc["workload_size"].update(latent_frames=20),
+            "workload_size.latent_tokens_video is",
+        ),
+        (
+            "h3-v2.yaml",
+            lambda doc: doc["workload_size"].update(latent_tokens_audio=0),
+            "workload_size.latent_tokens is",
+        ),
+        (
+            "wan22.yaml",
+            lambda doc: doc["workload_size"].update(guidance_branches=1),
+            "workload_size.dit_forward_passes is",
+        ),
+        (
+            "h3-v2.yaml",
+            lambda doc: doc["workload_size"]["model"].update(layers=49),
+            "workload_size.dit_flops_per_clip is",
         ),
     ],
 )

@@ -1170,10 +1170,15 @@ def test_multinode_eval_overrides_image_offline_mode_and_host_model_path(harness
 
 
 def test_video_startup_failure_keeps_a_failed_bundle_without_client_results(harness):
-    env = video_env(harness, "h100-cw", FAKE_RESULTS="none", FAKE_STATE="FAILED|1:0")
+    env = video_env(
+        harness, "h100-cw", VIDEO_SPEC="h3-v2.yaml", FAKE_RESULTS="none", FAKE_STATE="FAILED|1:0"
+    )
     result = launch(env, harness.config, harness.workspace)
     assert result.returncode != 0
     bundle = harness.workspace / "h3-results"
+    spec = yaml.safe_load((ROOT.parent / "video-generation/specs/h3-v2.yaml").read_text())
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    assert manifest["workload_size"] == spec["workload_size"]
     matrix = json.loads((bundle / "serving-smoke.json").read_text())
     assert matrix["status"] == "failed" and matrix["power_verified"] is False
     assert [cell["concurrency"] for cell in matrix["cells"]] == [1, 2]

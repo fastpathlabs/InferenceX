@@ -179,6 +179,7 @@ def load_spec(name: str, *, root: Path, set_id: str) -> dict[str, Any]:
         "plan": plan,
         "plan_sha256": module.plan_sha256(plan),
         "schema_version": module.schema_version(plan),
+        "workload_size": source.get("workload_size"),
     }
 
 

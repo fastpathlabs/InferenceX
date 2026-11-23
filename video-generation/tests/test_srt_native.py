@@ -569,6 +569,7 @@ def test_startup_failure_preserves_declared_plan_and_engine_identity(tmp_path):
     identity = {
         "plan_sha256": PLAN_SHA,
         "workload_plan": PLAN,
+        "workload_size": {"latent_tokens": 37710},
         "engine": {"name": "vllm-omni", "revision": "a" * 40},
     }
     (workspace / "video-identity.json").write_text(json.dumps(identity))
@@ -646,6 +647,11 @@ def test_reuse_counts_only_the_newest_attempt_of_each_selected_deployment(tmp_pa
     # Deployment 1 ran only in attempt 1; deployment 2 ran in attempts 1 and 2.
     artifacts = _sweep(tmp_path, attempts=("1", "2"))
     _bundle(tmp_path, artifacts, "2" * 64, "1")
+    older = artifacts / ("h3-results-123-1-" + "1" * 64)
+    manifest = json.loads((older / "manifest.json").read_text())
+    del manifest["workload_size"]
+    (older / "manifest.json").write_text(json.dumps(manifest))
+    _reseal(older)
     assert (
         validate_video_artifacts(artifacts, run_id="123", run_attempt="2", head_sha="c" * 40) == 2
     )

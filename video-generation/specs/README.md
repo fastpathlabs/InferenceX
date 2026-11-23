@@ -25,6 +25,9 @@ Code that needs the version calls `schema_version(plan)` instead of testing whic
 - `prompts` defines each prompt once with its motion and sound requirements.
   Each entry in `sets` lists cases that pair a prompt with a seed; no two cases repeat both prompt text and seed.
 - `reference` (version 1 only) records the SGLang run on #2916 whose plan hash `frozen-c124` reproduces.
+- `workload_size` (optional; `h3-v2.yaml` and `wan22.yaml` declare it) states the work in one clip: latent tokens, DiT forward passes (denoising steps × guidance branches) and estimated DiT FLOPs, with the model constants the estimate uses.
+  FLOPs per forward pass are 2 × tokens × `dit_weights_per_token` + 4 × tokens² × `attention_width` × `layers`.
+  The loader rejects a size that disagrees with `generation` or with its own constants, and the bundle manifest carries it beside `workload_plan`.
 
 ## Hash contract
 
@@ -35,7 +38,7 @@ Both hashes below and the runner's recorded `plan_sha256` are SHA-256 over those
   The `frozen-c124` set reproduces the `h3-serving-2gpu-c124-v1` plan that the reference run recorded, whose hash is `8d51a472caa7db0f5d4c33adec1e9c9f852e7144cf25356085802edaf7d80d68`; `test_video_spec.py` asserts it.
 - `spec_sha256(spec)` covers the model, the generation values, and each set's resolved cases and counts.
 - For `h3-v2.yaml`, both hashes also cover `warmup_case` and `fairness`, and the plan hash covers `schema_version`.
-- `reference`, YAML key order, comments, and formatting are outside both hashes.
+- `reference`, `workload_size`, YAML key order, comments, and formatting are outside both hashes.
   Neither hash includes GPU UUIDs, job IDs, ports, or hosts.
 - `plan_for(spec, set_id, repetitions=..., warmup_runs=...)` overrides the counts.
   If either count differs from the set's own, the plan ID gains a `-r<repetitions>-w<warmup_runs>` suffix, so a shortened run never shares an ID or a hash with the full one.
