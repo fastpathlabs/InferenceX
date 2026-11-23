@@ -598,19 +598,24 @@ def test_startup_failure_preserves_declared_plan_and_engine_identity(tmp_path):
         ("missing_media", "reference mismatch"),
         ("power", "unverified native"),
         ("attestation", "work attestation failed"),
+        ("receipt", "missing engine work attestation"),
         ("head", "CI identity mismatch"),
     ],
 )
-def test_reuse_rejects_resealed_bundles_with_altered_evidence(tmp_path, fault, match):
+def test_reuse_rejects_resealed_bundles_with_altered_evidence(tmp_path, monkeypatch, fault, match):
+    from infx.results import video_artifacts
     from infx.results.video_artifacts import validate_video_artifacts
 
+    assert video_artifacts.ATTESTED_FRAMEWORKS == set(srt_bundle.POLICIES)
     artifacts = _sweep(tmp_path)
     bundle = artifacts / ("h3-results-123-2-" + "2" * 64)
     matrix_path = bundle / "serving-smoke.json"
     matrix = json.loads(matrix_path.read_text())
     cell = matrix["cells"][0]
     reference = (
-        None if fault == "head" else cell[fault if fault in ("power", "attestation") else "run"]
+        None
+        if fault == "head"
+        else cell[fault if fault in ("power", "attestation", "receipt") else "run"]
     )
     path = bundle / ("manifest.json" if reference is None else reference["path"])
     doc = json.loads(path.read_text())
@@ -621,6 +626,8 @@ def test_reuse_rejects_resealed_bundles_with_altered_evidence(tmp_path, fault, m
         doc["records"][0]["artifact_path"] = "artifacts/missing.mp4"
     elif fault in ("power", "attestation"):
         doc["valid"] = False
+    elif fault == "receipt":
+        del doc["attestation"], cell["attestation"]
     else:
         doc["ci"]["head_sha"] = "d" * 40
     path.write_text(json.dumps(doc))
@@ -629,6 +636,9 @@ def test_reuse_rejects_resealed_bundles_with_altered_evidence(tmp_path, fault, m
         matrix_path.write_text(json.dumps(matrix))
     _reseal(bundle)
     with pytest.raises(ValueError, match=match):
+        validate_video_artifacts(artifacts, run_id="123", run_attempt="2", head_sha="c" * 40)
+    if fault == "receipt":  # A framework without a policy needs no attestation.
+        monkeypatch.setattr(video_artifacts, "ATTESTED_FRAMEWORKS", frozenset())
         validate_video_artifacts(artifacts, run_id="123", run_attempt="2", head_sha="c" * 40)
 
 

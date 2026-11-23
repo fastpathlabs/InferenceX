@@ -11,6 +11,9 @@ from pathlib import Path, PurePosixPath
 from infx.bench.video import read_object
 
 VIDEO_ARTIFACT = re.compile(r"h3-results-([0-9]+)-([0-9]+)-([0-9a-f]{64})")
+# The keys of POLICIES in video-generation/evaluator/attestation.py, which this package cannot
+# import; video-generation/tests pins the two together.
+ATTESTED_FRAMEWORKS = frozenset({"sglang"})
 
 
 def _inventory(root: Path) -> dict[str, str]:
@@ -143,7 +146,10 @@ def validate_video_artifacts(
                 or receipt.get("status") != "complete"
             ):
                 raise ValueError(f"{name}: unverified native measurement or power receipt")
-            # Presence-gated so older and policy-less bundles stay reusable; dropping it is not caught.
+            # A framework with a work-attestation policy must carry one; the sweep manifest row,
+            # not the bundle, names the framework, so dropping the attestation is caught.
+            if row["framework"] in ATTESTED_FRAMEWORKS and "attestation" not in cell:
+                raise ValueError(f"{name}: missing engine work attestation")
             if "attestation" in cell or "attestation" in receipt:
                 attestation = read_object(bundle / _reference(inventory, cell.get("attestation")))
                 if attestation.get("valid") is not True:
